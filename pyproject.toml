@@ -1,0 +1,37 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "cmake>=3.18", "ninja"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pyjabcode"
+version = "2.0.0"
+description = "Python bindings for the JABCode (Just Another Bar Code) library"
+readme = "README.md"
+license = {text = "LGPL-2.1-only"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)",
+    "Operating System :: OS Independent",
+    "Programming Language :: C",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+wheel.packages = ["pyjabcode"]
+
+# Let CMake install the shared library into the wheel alongside the
+# pure-Python package directory.
+wheel.install-dir = "."

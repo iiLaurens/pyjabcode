@@ -1,0 +1,36 @@
+# cibuildwheel configuration
+# https://cibuildwheel.readthedocs.io/
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+[tool.cibuildwheel]
+# Build CPython only (no PyPy) for the common 64-bit platforms.
+build = "cp38-* cp39-* cp310-* cp311-* cp312-* cp313-*"
+skip = "*-musllinux_i686 *-manylinux_i686 *-win32"
+
+# Run the test suite against the *installed* wheel
+test-requires = "pytest"
+test-command  = "pytest {project}/tests -v"
+
+# ---------------------------------------------------------------------------
+# Linux (manylinux) – dependencies are fetched & compiled by CMake
+# ---------------------------------------------------------------------------
+[tool.cibuildwheel.linux]
+# manylinux images already have gcc + cmake; nothing extra to install
+before-build = ""
+
+# ---------------------------------------------------------------------------
+# macOS – use the system Xcode toolchain
+# ---------------------------------------------------------------------------
+[tool.cibuildwheel.macos]
+before-build = ""
+
+# Build universal2 wheels that work on both Intel and Apple Silicon
+archs = "x86_64 arm64"
+
+# ---------------------------------------------------------------------------
+# Windows – MSVC toolchain is provided by the GitHub Actions runner
+# ---------------------------------------------------------------------------
+[tool.cibuildwheel.windows]
+before-build = ""
