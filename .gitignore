@@ -1,0 +1,13 @@
+# Build artifacts
+*.o
+*.a
+*.dll
+*.so
+*.exe
+
+# Build output directories (keep the directories, ignore contents)
+src/jabcode/build/libjabcode.a
+src/jabcodeReader/bin/jabcodeReader
+src/jabcodeReader/bin/jabcodeReader.exe
+src/jabcodeWriter/bin/jabcodeWriter
+src/jabcodeWriter/bin/jabcodeWriter.exe

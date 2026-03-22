@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Linux build — uses system libtiff/libpng/zlib via apt
+  # -------------------------------------------------------------------------
+  build-linux:
+    name: Build (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libtiff-dev libpng-dev zlib1g-dev
+
+      - name: Build jabcode library
+        run: make -C src/jabcode
+
+      - name: Build jabcodeReader
+        run: |
+          make -C src/jabcodeReader \
+            LIBFLAGS="-L../jabcode/build -ljabcode -ltiff -lpng -lz -lm"
+
+      - name: Build jabcodeWriter
+        run: |
+          make -C src/jabcodeWriter \
+            LIBFLAGS="-L../jabcode/build -ljabcode -ltiff -lpng -lz -lm"
+
+      - name: Verify binaries exist
+        run: |
+          test -f src/jabcode/build/libjabcode.a
+          test -f src/jabcodeReader/bin/jabcodeReader
+          test -f src/jabcodeWriter/bin/jabcodeWriter
+          echo "All build artifacts verified."
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jabcode-linux
+          path: |
+            src/jabcode/build/libjabcode.a
+            src/jabcodeReader/bin/jabcodeReader
+            src/jabcodeWriter/bin/jabcodeWriter
+
+  # -------------------------------------------------------------------------
+  # Windows build — uses MinGW-w64 cross-compiler with bundled win64 static
+  # libraries (src/jabcode/lib/win64/) that were pre-compiled for Windows.
+  # -------------------------------------------------------------------------
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 / MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            make
+
+      - name: Build jabcode static library
+        # Use the standard Makefile (static library) for Windows as well.
+        # MinGW-w64's gcc + ar work identically to Linux gcc/ar.
+        run: make -C src/jabcode
+
+      - name: Build jabcodeReader (Windows)
+        # Use the bundled win64 static libraries (pre-compiled for Windows).
+        run: |
+          make -C src/jabcodeReader \
+            LIBFLAGS="-L../jabcode/build -ljabcode -L../jabcode/lib/win64 -ltiff -lpng16 -lz -lm" \
+            TARGET="bin/jabcodeReader.exe"
+
+      - name: Build jabcodeWriter (Windows)
+        run: |
+          make -C src/jabcodeWriter \
+            LIBFLAGS="-L../jabcode/build -ljabcode -L../jabcode/lib/win64 -ltiff -lpng16 -lz -lm" \
+            TARGET="bin/jabcodeWriter.exe"
+
+      - name: Verify binaries exist
+        run: |
+          test -f src/jabcode/build/libjabcode.a
+          test -f src/jabcodeReader/bin/jabcodeReader.exe
+          test -f src/jabcodeWriter/bin/jabcodeWriter.exe
+          echo "All build artifacts verified."
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jabcode-windows
+          path: |
+            src/jabcode/build/libjabcode.a
+            src/jabcodeReader/bin/jabcodeReader.exe
+            src/jabcodeWriter/bin/jabcodeWriter.exe
