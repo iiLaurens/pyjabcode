@@ -1,7 +1,5 @@
 """Tests for pyjabcode encode / decode round-trip."""
 
-import os
-import tempfile
 from pathlib import Path
 
 import pytest

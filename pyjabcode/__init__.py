@@ -8,14 +8,10 @@ JAB Code colour barcodes (PNG images).
 from __future__ import annotations
 
 import ctypes
-import ctypes.util
 import os
 import platform
 import site
-import sys
-import tempfile
 from pathlib import Path
-from typing import Optional
 
 __all__ = ["encode", "decode", "JabCodeError"]
 __version__ = "2.0.0"
