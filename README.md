@@ -1,5 +1,5 @@
 <a href="https://jabcode.org">
-    <img src="docs/img/jabcode_logo.png" alt="JABCode logo" title="JABCode" align="right" height="80" />
+    <img src="https://jabcode.org/wp-content/uploads/sites/96/2018/04/jabcode_logo.png" alt="JABCode logo" title="JABCode" align="right" height="80" />
 </a>
 
 # pyjabcode
@@ -138,9 +138,12 @@ Encodes *data* and writes a PNG to *filename*.  Returns the `Path` that was writ
 | `symbol_versions` | `None` | Per-symbol side-version as `[(x, y), …]`, values 1–32. **Required for multi-symbol codes.** Must have `symbol_number` entries. |
 | `symbol_positions` | `None` | Per-symbol position index (0–60). Must have `symbol_number` entries. |
 
-Raises `ValueError` if `module_size` is less than 1, if any `ecc_level` value is outside 0–10,
+Raises `ValueError` if `color_number` is not one of 4, 8, 16, 32, 64, 128, or 256,
+if `symbol_number` is outside 1–61,
+if `module_size` is less than 1, if any `ecc_level` value is outside 0–10,
 if `symbol_number > 1` and `symbol_versions` is not provided, if `symbol_versions` or
-`symbol_positions` have the wrong length, or if any `symbol_positions` value is outside 0–60.  
+`symbol_positions` have the wrong length, if any `symbol_versions` value is outside 1–32,
+or if any `symbol_positions` value is outside 0–60.  
 Raises `JabCodeError` if the C library reports an error.
 
 ### `pyjabcode.decode`
@@ -173,29 +176,14 @@ A `RuntimeError` subclass raised when the underlying C library reports a failure
 | Limitation | Detail |
 |---|---|
 | Null bytes in payload | The C library stores data in `char[]`; `\x00` bytes act as terminators in some internal paths and will corrupt binary payloads that contain them. |
-| CMYK output | `saveImageCMYK` is not exposed — the TIFF backend is compiled as a stub and always fails at runtime. |
-| Colour count | Only powers of two between 2 and 256 are accepted; other values silently fall back to the library default (8). |
 
 ---
 
 ## Licensing
 
-### pyjabcode (Python wrapper)
-
 The Python wrapper code in `pyjabcode/` is licensed under the **Apache License 2.0** — see [`LICENSE-APACHE`](LICENSE-APACHE).
 
-### JABCode C library (bundled)
-
 The JABCode C source code in `src/jabcode/` and the compiled `libjabcode` shared library bundled in the wheel are licensed under the **GNU Lesser General Public License v2.1 (LGPL-2.1)** — see [`LICENSE`](LICENSE).  The original library was developed by [Fraunhofer SIT](https://www.sit.fraunhofer.de/).
-
-### Compatibility analysis
-
-The LGPL-2.1 library is compiled into a standalone **shared library** (`libjabcode.so` / `.dylib` / `.dll`) and loaded at runtime by the Python wrapper via `ctypes`.  This is *dynamic linking* as defined by LGPL-2.1 Section 6, which explicitly allows non-LGPL applications to use an LGPL library in this way provided:
-
-1. **The library is distributed as a separate, replaceable file** — satisfied: the wheel contains `libjabcode.so` as an independent shared library. Users can replace it with a modified version compiled from the LGPL source.
-2. **The library source or a written offer for it is available** — satisfied: the full source is in `src/jabcode/` and in the [upstream repository](https://github.com/jabcode/jabcode).
-
-**There is no license conflict.** Apache 2.0 applies to the Python wrapper code; LGPL-2.1 applies to the C library. Dynamic linking through `ctypes` keeps them legally separate.  The only constraint is that any *modification to the C library itself* must remain under LGPL-2.1.
 
 ---
 
@@ -204,16 +192,16 @@ The LGPL-2.1 library is compiled into a standalone **shared library** (`libjabco
 ```
 pyjabcode/
 ├── pyjabcode/          # Python package (Apache 2.0)
-│   └── __init__.py     # encode(), decode(), JabCodeError
+│   └── __init__.py
 ├── src/
 │   ├── jabcode/        # JABCode C library (LGPL-2.1)
 │   ├── jabcodeReader/  # CLI reader application
 │   └── jabcodeWriter/  # CLI writer application
-├── cmake/              # Build helpers (TIFF stub)
+├── cmake/              # Build helpers
 ├── tests/              # pytest test suite
-├── CMakeLists.txt      # scikit-build-core build definition
-├── LICENSE             # LGPL-2.1 (JABCode C library)
-└── LICENSE-APACHE      # Apache 2.0 (pyjabcode Python wrapper)
+├── CMakeLists.txt
+├── LICENSE             # LGPL-2.1
+└── LICENSE-APACHE      # Apache 2.0
 ```
 
 ---

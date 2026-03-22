@@ -60,6 +60,14 @@ class TestEncodeDecode:
         result = pyjabcode.decode(img)
         assert result == payload
 
+    def test_all_valid_color_numbers_accepted(self, tmp_path: Path):
+        """Every value in the allowed color_number set must encode without error."""
+        payload = b"colour"
+        for cn in [4, 8, 16, 32, 64, 128, 256]:
+            img = tmp_path / f"cn{cn}.png"
+            pyjabcode.encode(payload, img, color_number=cn)
+            assert img.exists()
+
     def test_null_bytes_truncated(self, tmp_path: Path):
         """JABCode uses char[] internally; data after a null byte is lost."""
         payload = b"AB\x00CD"
@@ -193,6 +201,36 @@ class TestEncodeOptions:
                 symbol_positions=[0],  # need 2, not 1
             )
 
+    def test_invalid_color_number(self, tmp_path: Path):
+        """color_number not in the valid set raises ValueError (C would silently fall back to 8)."""
+        with pytest.raises(ValueError, match="color_number"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", color_number=3)
+
+    def test_symbol_number_zero_raises(self, tmp_path: Path):
+        """symbol_number=0 raises ValueError (C would silently fall back to 1)."""
+        with pytest.raises(ValueError, match="symbol_number"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", symbol_number=0)
+
+    def test_symbol_number_too_large_raises(self, tmp_path: Path):
+        """symbol_number=62 raises ValueError (C would silently fall back to 1)."""
+        with pytest.raises(ValueError, match="symbol_number"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", symbol_number=62)
+
+    def test_symbol_version_value_zero_raises(self, tmp_path: Path):
+        """symbol_versions entry with 0 raises ValueError (no C-side bounds check)."""
+        with pytest.raises(ValueError, match="symbol_versions x-value"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", symbol_versions=[(0, 1)])
+
+    def test_symbol_version_value_too_large_raises(self, tmp_path: Path):
+        """symbol_versions entry > 32 raises ValueError (no C-side bounds check)."""
+        with pytest.raises(ValueError, match="symbol_versions x-value"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", symbol_versions=[(33, 1)])
+
+    def test_symbol_version_y_value_zero_raises(self, tmp_path: Path):
+        """symbol_versions y-value 0 raises ValueError with an axis-specific message."""
+        with pytest.raises(ValueError, match="symbol_versions y-value"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", symbol_versions=[(1, 0)])
+
 
 class TestDecodeOptions:
     """Tests for the extra decode parameters."""
@@ -234,6 +272,18 @@ class TestErrorHandling:
         img = tmp_path / "empty.png"
         with pytest.raises(pyjabcode.JabCodeError):
             pyjabcode.encode(b"", img)
+
+    def test_encode_oversized_data(self, tmp_path: Path):
+        """Data that exceeds symbol capacity raises JabCodeError from the C library."""
+        # Use the smallest possible symbol with high ECC so capacity is low.
+        # The C library returns a non-zero error code which Python wraps as JabCodeError.
+        with pytest.raises(pyjabcode.JabCodeError):
+            pyjabcode.encode(
+                b"A" * 10000,
+                tmp_path / "overflow.png",
+                symbol_versions=[(1, 1)],
+                ecc_level=10,
+            )
 
 
 class TestModuleImport:

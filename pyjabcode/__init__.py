@@ -146,6 +146,73 @@ class JabCodeError(RuntimeError):
     """Raised when the C library reports an error."""
 
 
+_VALID_COLOR_NUMBERS = {4, 8, 16, 32, 64, 128, 256}
+
+
+def _validate_common_params(
+    color_number: int,
+    symbol_number: int,
+    ecc_level: int | list[int],
+    symbol_versions: list[tuple[int, int]] | None,
+) -> list[int]:
+    """Validate parameters shared by :func:`encode` and :func:`get_capacity`.
+
+    Returns the normalised per-symbol ECC level list.
+    """
+    if color_number not in _VALID_COLOR_NUMBERS:
+        raise ValueError(
+            f"color_number must be one of {sorted(_VALID_COLOR_NUMBERS)}, "
+            f"got {color_number!r}"
+        )
+
+    if not (1 <= symbol_number <= 61):
+        raise ValueError(
+            f"symbol_number must be between 1 and 61, got {symbol_number!r}"
+        )
+
+    if symbol_number > 1 and symbol_versions is None:
+        raise ValueError(
+            "symbol_versions is required when symbol_number > 1 — "
+            "provide a list of (x, y) side-version tuples (values 1–32) "
+            "with one entry per symbol"
+        )
+
+    if symbol_versions is not None:
+        if len(symbol_versions) != symbol_number:
+            raise ValueError(
+                f"symbol_versions length ({len(symbol_versions)}) must "
+                f"equal symbol_number ({symbol_number})"
+            )
+        for vx, vy in symbol_versions:
+            if not (1 <= vx <= 32):
+                raise ValueError(
+                    f"symbol_versions x-value must be between 1 and 32, "
+                    f"got {vx!r}"
+                )
+            if not (1 <= vy <= 32):
+                raise ValueError(
+                    f"symbol_versions y-value must be between 1 and 32, "
+                    f"got {vy!r}"
+                )
+
+    if isinstance(ecc_level, int):
+        ecc_levels_list = [ecc_level] * symbol_number
+    else:
+        ecc_levels_list = list(ecc_level)
+        if len(ecc_levels_list) != symbol_number:
+            raise ValueError(
+                f"ecc_level list length ({len(ecc_levels_list)}) must "
+                f"equal symbol_number ({symbol_number})"
+            )
+    for lvl in ecc_levels_list:
+        if not (0 <= lvl <= 10):
+            raise ValueError(
+                f"ecc_level values must be between 0 and 10, got {lvl!r}"
+            )
+
+    return ecc_levels_list
+
+
 def _make_jab_data(payload: bytes) -> ctypes.Structure:
     """Allocate a ``jab_data`` C struct with *payload* copied in."""
     length = len(payload)
@@ -228,6 +295,10 @@ def encode(
     Raises
     ------
     ValueError
+        If *color_number* is not one of 4, 8, 16, 32, 64, 128, or 256.
+    ValueError
+        If *symbol_number* is outside the range 1–61.
+    ValueError
         If *module_size* is provided but less than 1.
     ValueError
         If any *ecc_level* value is outside the range 0–10.
@@ -235,6 +306,8 @@ def encode(
         If *symbol_number* > 1 and *symbol_versions* is not provided.
     ValueError
         If *symbol_versions* or *symbol_positions* have the wrong length.
+    ValueError
+        If any *symbol_versions* tuple value is outside the range 1–32.
     ValueError
         If any value in *symbol_positions* is outside the range 0–60.
     JabCodeError
@@ -266,37 +339,13 @@ def encode(
     filename = Path(filename)
 
     # --- input validation (before touching C) ---
+    ecc_levels_list = _validate_common_params(
+        color_number, symbol_number, ecc_level, symbol_versions
+    )
+
     if module_size is not None and module_size < 1:
         raise ValueError(
             f"module_size must be a positive integer, got {module_size!r}"
-        )
-
-    if isinstance(ecc_level, int):
-        ecc_levels_list = [ecc_level] * symbol_number
-    else:
-        ecc_levels_list = list(ecc_level)
-        if len(ecc_levels_list) != symbol_number:
-            raise ValueError(
-                f"ecc_level list length ({len(ecc_levels_list)}) must "
-                f"equal symbol_number ({symbol_number})"
-            )
-    for lvl in ecc_levels_list:
-        if not (0 <= lvl <= 10):
-            raise ValueError(
-                f"ecc_level values must be between 0 and 10, got {lvl!r}"
-            )
-
-    if symbol_number > 1 and symbol_versions is None:
-        raise ValueError(
-            "symbol_versions is required when symbol_number > 1 — "
-            "provide a list of (x, y) side-version tuples (values 1–32) "
-            "with one entry per symbol"
-        )
-
-    if symbol_versions is not None and len(symbol_versions) != symbol_number:
-        raise ValueError(
-            f"symbol_versions length ({len(symbol_versions)}) must "
-            f"equal symbol_number ({symbol_number})"
         )
 
     if symbol_positions is not None:
@@ -577,25 +626,9 @@ def get_capacity(
 
         pyjabcode.get_capacity(color_number=8, ecc_level=3, symbol_versions=[(4, 4)])
     """
-    if symbol_number > 1 and symbol_versions is None:
-        raise ValueError(
-            "symbol_versions is required when symbol_number > 1"
-        )
-    if symbol_versions is not None and len(symbol_versions) != symbol_number:
-        raise ValueError(
-            f"symbol_versions length ({len(symbol_versions)}) must "
-            f"equal symbol_number ({symbol_number})"
-        )
-
-    if isinstance(ecc_level, int):
-        ecc_levels = [ecc_level] * symbol_number
-    else:
-        ecc_levels = list(ecc_level)
-        if len(ecc_levels) != symbol_number:
-            raise ValueError(
-                f"ecc_level list length ({len(ecc_levels)}) must "
-                f"equal symbol_number ({symbol_number})"
-            )
+    ecc_levels = _validate_common_params(
+        color_number, symbol_number, ecc_level, symbol_versions
+    )
 
     # Resolve 0 → DEFAULT_ECC_LEVEL (mirrors C setMasterSymbolVersion logic).
     effective_eccs = [_DEFAULT_ECC_LEVEL if lvl == 0 else lvl for lvl in ecc_levels]
