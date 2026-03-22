@@ -280,15 +280,15 @@ def decode(filename: str | os.PathLike) -> bytes:
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Cache the C runtime library handle for free() calls
+if platform.system() == "Windows":
+    _crt = ctypes.CDLL("msvcrt")
+else:
+    _crt = ctypes.CDLL(None)  # default C library (libc on Linux/macOS)
+_crt.free.argtypes = [ctypes.c_void_p]
+_crt.free.restype = None
+
+
 def _libc_free(ptr):
     """Call C free() on a ctypes pointer."""
-    ctypes.pythonapi.PyMem_RawFree  # noqa – just checking availability
-    # Use the C library's free() via ctypes
-    if platform.system() == "Windows":
-        # On Windows, use msvcrt.free
-        _crt = ctypes.CDLL("msvcrt")
-    else:
-        _crt = ctypes.CDLL(None)  # loads the default C library
-    _crt.free.argtypes = [ctypes.c_void_p]
-    _crt.free.restype = None
     _crt.free(ctypes.cast(ptr, ctypes.c_void_p))

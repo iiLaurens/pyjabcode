@@ -62,6 +62,17 @@ class TestEncodeDecode:
         result = pyjabcode.decode(img)
         assert result == payload
 
+    def test_null_bytes_truncated(self, tmp_path: Path):
+        """JABCode uses char[] internally; data after a null byte is lost."""
+        payload = b"AB\x00CD"
+        img = tmp_path / "null.png"
+
+        pyjabcode.encode(payload, img)
+        result = pyjabcode.decode(img)
+        # The C library truncates data at the first null byte
+        assert result[:2] == b"AB"
+        assert len(result) == len(payload)
+
 
 class TestErrorHandling:
     """Verify that errors are raised properly."""
