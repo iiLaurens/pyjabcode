@@ -72,6 +72,110 @@ class TestEncodeDecode:
         assert len(result) == len(payload)
 
 
+class TestEncodeOptions:
+    """Tests for the extra encode parameters."""
+
+    def test_module_size(self, tmp_path: Path):
+        """A larger module size should produce a larger file."""
+        payload = b"size test"
+        small = tmp_path / "small.png"
+        large = tmp_path / "large.png"
+
+        pyjabcode.encode(payload, small, module_size=6)
+        pyjabcode.encode(payload, large, module_size=24)
+
+        assert large.stat().st_size > small.stat().st_size
+
+    def test_master_symbol_dimensions(self, tmp_path: Path):
+        """Setting master symbol dimensions overrides the default size."""
+        payload = b"dimension test"
+        img = tmp_path / "dims.png"
+
+        pyjabcode.encode(payload, img, master_symbol_width=200, master_symbol_height=200)
+        assert img.exists()
+        result = pyjabcode.decode(img)
+        assert result == payload
+
+    def test_ecc_level_scalar(self, tmp_path: Path):
+        """A scalar ecc_level is applied to all symbols."""
+        payload = b"ecc scalar"
+        img = tmp_path / "ecc.png"
+
+        pyjabcode.encode(payload, img, ecc_level=5)
+        assert pyjabcode.decode(img) == payload
+
+    def test_ecc_level_list(self, tmp_path: Path):
+        """A per-symbol ecc_level list is applied symbol-by-symbol."""
+        payload = b"ecc list"
+        img = tmp_path / "ecc_list.png"
+
+        # A single-element list behaves the same as a scalar
+        pyjabcode.encode(payload, img, ecc_level=[5])
+        assert pyjabcode.decode(img) == payload
+
+    def test_symbol_versions(self, tmp_path: Path):
+        """Explicit symbol versions encode and decode correctly."""
+        payload = b"version test"
+        img = tmp_path / "versions.png"
+
+        pyjabcode.encode(payload, img, symbol_versions=[(3, 3)])
+        assert pyjabcode.decode(img) == payload
+
+    def test_multi_symbol_with_positions(self, tmp_path: Path):
+        """Multi-symbol code with explicit versions and positions round-trips."""
+        payload = b"multi-symbol payload"
+        img = tmp_path / "multi.png"
+
+        # symbol_versions is required for multi-symbol codes (values must be 1 to 32)
+        pyjabcode.encode(
+            payload,
+            img,
+            symbol_number=2,
+            symbol_versions=[(4, 4), (4, 4)],
+            symbol_positions=[0, 3],
+        )
+        assert pyjabcode.decode(img) == payload
+
+    def test_symbol_versions_wrong_length(self, tmp_path: Path):
+        """symbol_versions length mismatch raises ValueError."""
+        with pytest.raises(ValueError, match="symbol_versions"):
+            pyjabcode.encode(
+                b"x", tmp_path / "bad.png",
+                symbol_number=2,
+                symbol_versions=[(1, 1)],  # need 2, not 1
+            )
+
+    def test_symbol_positions_wrong_length(self, tmp_path: Path):
+        """symbol_positions length mismatch raises ValueError."""
+        with pytest.raises(ValueError, match="symbol_positions"):
+            pyjabcode.encode(
+                b"x", tmp_path / "bad.png",
+                symbol_number=2,
+                symbol_positions=[0],  # need 2, not 1
+            )
+
+
+class TestDecodeOptions:
+    """Tests for the extra decode parameters."""
+
+    def test_compatible_decode_normal_code(self, tmp_path: Path):
+        """compatible=True should decode a normal (undamaged) code correctly."""
+        payload = b"compatible mode"
+        img = tmp_path / "compat.png"
+
+        pyjabcode.encode(payload, img)
+        result = pyjabcode.decode(img, compatible=True)
+        assert result == payload
+
+    def test_compatible_false_is_default(self, tmp_path: Path):
+        """Omitting compatible= gives the same result as compatible=False."""
+        payload = b"default mode"
+        img = tmp_path / "default.png"
+
+        pyjabcode.encode(payload, img)
+        assert pyjabcode.decode(img) == pyjabcode.decode(img, compatible=False)
+
+
 class TestErrorHandling:
     """Verify that errors are raised properly."""
 
