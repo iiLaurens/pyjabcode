@@ -145,12 +145,51 @@ class TestEncodeOptions:
                 symbol_versions=[(1, 1)],  # need 2, not 1
             )
 
+    def test_multi_symbol_requires_symbol_versions(self, tmp_path: Path):
+        """symbol_number > 1 without symbol_versions raises ValueError."""
+        with pytest.raises(ValueError, match="symbol_versions is required"):
+            pyjabcode.encode(
+                b"x", tmp_path / "bad.png",
+                symbol_number=2,
+            )
+
+    def test_ecc_level_too_high(self, tmp_path: Path):
+        """ecc_level > 10 raises ValueError (would crash the C library)."""
+        with pytest.raises(ValueError, match="ecc_level"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", ecc_level=11)
+
+    def test_ecc_level_list_too_high(self, tmp_path: Path):
+        """An ecc_level list with a value > 10 raises ValueError."""
+        with pytest.raises(ValueError, match="ecc_level"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", ecc_level=[5, 11])
+
+    def test_symbol_position_out_of_range(self, tmp_path: Path):
+        """A symbol_position value outside 0–60 raises ValueError."""
+        with pytest.raises(ValueError, match="symbol_positions"):
+            pyjabcode.encode(
+                b"x", tmp_path / "bad.png",
+                symbol_number=2,
+                symbol_versions=[(4, 4), (4, 4)],
+                symbol_positions=[0, 61],  # 61 is out of range
+            )
+
+    def test_module_size_zero_raises(self, tmp_path: Path):
+        """module_size=0 raises ValueError (not a valid pixel size)."""
+        with pytest.raises(ValueError, match="module_size"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", module_size=0)
+
+    def test_module_size_negative_raises(self, tmp_path: Path):
+        """Negative module_size raises ValueError."""
+        with pytest.raises(ValueError, match="module_size"):
+            pyjabcode.encode(b"x", tmp_path / "bad.png", module_size=-1)
+
     def test_symbol_positions_wrong_length(self, tmp_path: Path):
         """symbol_positions length mismatch raises ValueError."""
         with pytest.raises(ValueError, match="symbol_positions"):
             pyjabcode.encode(
                 b"x", tmp_path / "bad.png",
                 symbol_number=2,
+                symbol_versions=[(4, 4), (4, 4)],
                 symbol_positions=[0],  # need 2, not 1
             )
 

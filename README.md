@@ -114,12 +114,12 @@ def encode(
     data: bytes | str,
     filename: str | os.PathLike,
     *,
-    color_number: int = 0,
+    color_number: int = 8,
     symbol_number: int = 1,
-    module_size: int = 0,
+    module_size: int | None = None,
     master_symbol_width: int = 0,
     master_symbol_height: int = 0,
-    ecc_level: int | list[int] = 0,
+    ecc_level: int | list[int] = 3,
     symbol_versions: list[tuple[int, int]] | None = None,
     symbol_positions: list[int] | None = None,
 ) -> Path
@@ -129,16 +129,18 @@ Encodes *data* and writes a PNG to *filename*.  Returns the `Path` that was writ
 
 | Parameter | Default | Description |
 |---|---|---|
-| `color_number` | `0` (→ 8) | Number of colours: 2, 4, 8, 16, 32, 64, 128, or 256. |
+| `color_number` | `8` | Number of colours: 4, 8, 16, 32, 64, 128, or 256. |
 | `symbol_number` | `1` | Total symbols (1–61). |
-| `module_size` | `0` (→ 12 px) | Module size in pixels. Overridden by `master_symbol_width/height`. |
+| `module_size` | `None` (→ 12 px) | Module size in pixels (must be ≥ 1). Overridden by `master_symbol_width/height`. |
 | `master_symbol_width` | `0` (auto) | Primary symbol width in pixels. |
 | `master_symbol_height` | `0` (auto) | Primary symbol height in pixels. |
-| `ecc_level` | `0` (→ 3) | ECC level 1–10, or a list with one value per symbol. |
+| `ecc_level` | `3` | ECC level 1–10 (0 = library default), or a list with one value per symbol. |
 | `symbol_versions` | `None` | Per-symbol side-version as `[(x, y), …]`, values 1–32. **Required for multi-symbol codes.** Must have `symbol_number` entries. |
 | `symbol_positions` | `None` | Per-symbol position index (0–60). Must have `symbol_number` entries. |
 
-Raises `ValueError` if `symbol_versions` or `symbol_positions` have the wrong length.  
+Raises `ValueError` if `module_size` is less than 1, if any `ecc_level` value is outside 0–10,
+if `symbol_number > 1` and `symbol_versions` is not provided, if `symbol_versions` or
+`symbol_positions` have the wrong length, or if any `symbol_positions` value is outside 0–60.  
 Raises `JabCodeError` if the C library reports an error.
 
 ### `pyjabcode.decode`
