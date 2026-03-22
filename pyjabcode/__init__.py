@@ -1,24 +1,8 @@
 """
 pyjabcode – Python bindings for the JABCode C library.
 
-Provides :func:`encode` and :func:`decode` for creating and reading
-JAB Code colour barcodes (PNG images).
-
-JABCode is a high-capacity 2D colour barcode that encodes more data than
-traditional black-and-white symbols by using up to 256 colours.  A single
-primary symbol can be extended with up to 60 secondary (slave) symbols to
-increase capacity further.
-
-Typical usage::
-
-    import pyjabcode
-
-    # Encode a string to a PNG file
-    pyjabcode.encode("Hello, JABCode!", "hello.png")
-
-    # Decode that file back to bytes
-    payload = pyjabcode.decode("hello.png")
-    print(payload.decode())          # Hello, JABCode!
+Provides :func:`encode`, :func:`decode`, and :func:`get_capacity` for
+creating, reading, and sizing JAB Code colour barcodes (PNG images).
 
 Note
 ----
@@ -26,9 +10,6 @@ The JABCode C library stores payload data in a ``char[]`` array.  Null bytes
 (``\\x00``) act as terminators in some internal paths, so binary payloads that
 contain null bytes may not round-trip correctly.  Use non-zero byte sequences
 for binary data.
-
-CMYK output (``saveImageCMYK``) is not currently exposed because the TIFF
-backend is compiled as a stub that always returns failure at runtime.
 """
 
 from __future__ import annotations
@@ -39,7 +20,7 @@ import platform
 import site
 from pathlib import Path
 
-__all__ = ["encode", "decode", "JabCodeError"]
+__all__ = ["encode", "decode", "get_capacity", "JabCodeError"]
 __version__ = "2.0.0"
 
 # ---------------------------------------------------------------------------
@@ -47,24 +28,7 @@ __version__ = "2.0.0"
 # ---------------------------------------------------------------------------
 
 def _find_lib() -> ctypes.CDLL:
-    """Locate and load the jabcode shared library bundled with the package.
-
-    The function searches the package directory first, then every
-    site-packages directory returned by :mod:`site`.  This covers both
-    regular wheel installs (library next to ``__init__.py``) and editable
-    installs (library in site-packages while source lives elsewhere).
-
-    Returns
-    -------
-    ctypes.CDLL
-        A loaded handle to ``libjabcode`` (or the platform-specific name).
-
-    Raises
-    ------
-    OSError
-        If the shared library cannot be found in any of the searched
-        locations.
-    """
+    """Locate and load the jabcode shared library bundled with the package."""
     pkg_dir = Path(__file__).resolve().parent
 
     system = platform.system()
@@ -105,7 +69,6 @@ _lib = _find_lib()
 
 _c_int32 = ctypes.c_int32
 _c_byte = ctypes.c_ubyte
-_c_char_p = ctypes.c_char_p
 
 
 class _JabVector2d(ctypes.Structure):
@@ -184,29 +147,7 @@ class JabCodeError(RuntimeError):
 
 
 def _make_jab_data(payload: bytes) -> ctypes.Structure:
-    """Allocate a ``jab_data`` C struct with *payload* copied in.
-
-    ``jab_data`` is a flexible-array struct::
-
-        typedef struct {
-            jab_int32 length;
-            jab_char  data[];
-        } jab_data;
-
-    ctypes does not support flexible array members natively, so a concrete
-    inner class is generated for each unique payload length.
-
-    Parameters
-    ----------
-    payload:
-        Raw bytes to store in the struct.
-
-    Returns
-    -------
-    ctypes.Structure
-        A concrete ctypes structure whose memory layout matches
-        ``jab_data`` with ``length`` bytes of trailing data.
-    """
+    """Allocate a ``jab_data`` C struct with *payload* copied in."""
     length = len(payload)
 
     class _JabDataSized(ctypes.Structure):
@@ -334,6 +275,11 @@ def encode(
         ecc_levels_list = [ecc_level] * symbol_number
     else:
         ecc_levels_list = list(ecc_level)
+        if len(ecc_levels_list) != symbol_number:
+            raise ValueError(
+                f"ecc_level list length ({len(ecc_levels_list)}) must "
+                f"equal symbol_number ({symbol_number})"
+            )
     for lvl in ecc_levels_list:
         if not (0 <= lvl <= 10):
             raise ValueError(
@@ -384,7 +330,7 @@ def encode(
 
         # ECC levels – accept a scalar or a per-symbol list
         for i, lvl in enumerate(ecc_levels_list):
-            if lvl > 0 and i < symbol_number:
+            if lvl > 0:
                 enc.contents.symbol_ecc_levels[i] = lvl
 
         # Per-symbol side-version
@@ -486,17 +432,179 @@ _crt.free.restype = None
 
 
 def _libc_free(ptr: ctypes.c_void_p) -> None:
-    """Release *ptr* using the platform C runtime ``free()``.
+    """Release *ptr* using the platform C runtime ``free()``."""
+    _crt.free(ctypes.cast(ptr, ctypes.c_void_p))
 
-    Memory returned by the jabcode library (bitmaps, decoded data) is
-    allocated with the C ``malloc`` family and must be freed through the
-    same runtime to avoid heap corruption.  This helper casts *ptr* to
-    ``void *`` before calling ``free`` so callers can pass any ctypes
-    pointer type.
+
+# ---------------------------------------------------------------------------
+# Capacity calculation (mirrors C getSymbolCapacity / ecclevel2wcwr logic)
+# ---------------------------------------------------------------------------
+
+# Number of alignment patterns per axis for symbol versions 1–32.
+# Source: jab_ap_num[] in encoder.h.
+_JAB_AP_NUM = [
+    2, 2, 2, 2, 2,   # versions 1–5
+    3, 3, 3, 3,      # versions 6–9
+    4, 4, 4, 4,      # versions 10–13
+    5, 5, 5, 5,      # versions 14–17
+    6, 6, 6, 6,      # versions 18–21
+    7, 7, 7, 7,      # versions 22–25
+    8, 8, 8, 8,      # versions 26–29
+    9, 9, 9,         # versions 30–32
+]
+
+# (wc, wr) LDPC parameters for ECC levels 0–10.
+# Source: ecclevel2wcwr[][] in encoder.h.
+_ECC_LEVEL_WCWR = [
+    (4, 9),  # 0 (treated as default level 3)
+    (3, 8),  # 1
+    (3, 7),  # 2
+    (4, 9),  # 3 (default)
+    (3, 6),  # 4
+    (4, 7),  # 5
+    (4, 6),  # 6
+    (3, 4),  # 7
+    (4, 5),  # 8
+    (5, 6),  # 9
+    (6, 7),  # 10
+]
+
+# Metadata bit-lengths for the master symbol.
+# Source: MASTER_METADATA_PART1_LENGTH / PART2_LENGTH / PART1_MODULE_NUMBER in decoder.h.
+_META_PART1_BITS = 6
+_META_PART2_BITS = 38
+_META_PART1_MODULES = 4   # modules reserved for encoded Part I
+
+_DEFAULT_ECC_LEVEL = 3    # DEFAULT_ECC_LEVEL in jabcode.h
+_COLOR_PAL_NUMBER = 4     # COLOR_PALETTE_NUMBER in jabcode.h
+
+
+def _symbol_capacity(
+    color_number: int,
+    effective_ecc: int,
+    version_x: int,
+    version_y: int,
+    is_master: bool,
+) -> tuple[int, int]:
+    """Return *(gross_bits, net_bits)* for one symbol.
+
+    Mirrors ``getSymbolCapacity`` in encoder.c plus the net-capacity
+    formula from ``fitDataIntoSymbols``.
+    """
+    nb_modules_fp = 4 * 17 if is_master else 4 * 7
+    nb_modules_palette = (min(color_number, 64) - 2) * _COLOR_PAL_NUMBER
+    side_x = version_x * 4 + 17
+    side_y = version_y * 4 + 17
+    n_aps_x = _JAB_AP_NUM[version_x - 1]
+    n_aps_y = _JAB_AP_NUM[version_y - 1]
+    nb_modules_ap = (n_aps_x * n_aps_y - 4) * 7
+    nb_bpm = color_number.bit_length() - 1  # integer log2
+
+    nb_modules_metadata = 0
+    if is_master:
+        # Default mode (color_number==8 and ecc==3) needs no explicit metadata.
+        is_default = color_number == 8 and effective_ecc == _DEFAULT_ECC_LEVEL
+        if not is_default:
+            nb_modules_metadata = (
+                (_META_PART2_BITS + nb_bpm - 1) // nb_bpm + _META_PART1_MODULES
+            )
+
+    gross = (
+        side_x * side_y
+        - nb_modules_fp
+        - nb_modules_ap
+        - nb_modules_palette
+        - nb_modules_metadata
+    ) * nb_bpm
+
+    wc, wr = _ECC_LEVEL_WCWR[effective_ecc]
+    net = (gross // wr) * wr - (gross // wr) * wc
+    return gross, net
+
+
+def get_capacity(
+    *,
+    color_number: int = 8,
+    symbol_number: int = 1,
+    ecc_level: int | list[int] = 3,
+    symbol_versions: list[tuple[int, int]] | None = None,
+) -> int:
+    """Return the net data capacity in bits for a JABCode configuration.
+
+    The calculation mirrors the C library's internal ``getSymbolCapacity``
+    function and the ECC net-capacity formula, so results are bit-perfect
+    with what the library accepts.
 
     Parameters
     ----------
-    ptr:
-        Any ctypes pointer previously allocated by the jabcode library.
+    color_number:
+        Number of colours (4, 8, 16, 32, 64, 128, or 256).  Defaults to 8.
+    symbol_number:
+        Total number of symbols.  Defaults to 1.
+    ecc_level:
+        ECC level(s) (0–10; 0 maps to the library default of 3).
+        Either a single integer applied to all symbols or a per-symbol list.
+        Defaults to 3.
+    symbol_versions:
+        Per-symbol side versions as ``(x, y)`` tuples (1–32).  Required for
+        multi-symbol codes.  For a single-symbol code with ``None`` the
+        maximum version ``(32, 32)`` is used, giving an upper bound.
+
+    Returns
+    -------
+    int
+        Total net capacity in bits across all symbols.  This is the number
+        of encoded bits available for data (before the small fixed per-symbol
+        overhead of ~5 bits for mode flags).  Divide by 8 for a conservative
+        byte estimate; plain ASCII text encodes more compactly (≈5 bits per
+        uppercase character).
+
+    Raises
+    ------
+    ValueError
+        If *symbol_versions* is ``None`` and *symbol_number* > 1.
+    ValueError
+        If *symbol_versions* or *ecc_level* list length does not match
+        *symbol_number*.
+
+    Examples
+    --------
+    Maximum single-symbol capacity at default settings::
+
+        pyjabcode.get_capacity()   # returns bits for version 32×32
+
+    Capacity for a specific version::
+
+        pyjabcode.get_capacity(color_number=8, ecc_level=3, symbol_versions=[(4, 4)])
     """
-    _crt.free(ctypes.cast(ptr, ctypes.c_void_p))
+    if symbol_number > 1 and symbol_versions is None:
+        raise ValueError(
+            "symbol_versions is required when symbol_number > 1"
+        )
+    if symbol_versions is not None and len(symbol_versions) != symbol_number:
+        raise ValueError(
+            f"symbol_versions length ({len(symbol_versions)}) must "
+            f"equal symbol_number ({symbol_number})"
+        )
+
+    if isinstance(ecc_level, int):
+        ecc_levels = [ecc_level] * symbol_number
+    else:
+        ecc_levels = list(ecc_level)
+        if len(ecc_levels) != symbol_number:
+            raise ValueError(
+                f"ecc_level list length ({len(ecc_levels)}) must "
+                f"equal symbol_number ({symbol_number})"
+            )
+
+    # Resolve 0 → DEFAULT_ECC_LEVEL (mirrors C setMasterSymbolVersion logic).
+    effective_eccs = [_DEFAULT_ECC_LEVEL if lvl == 0 else lvl for lvl in ecc_levels]
+
+    versions = symbol_versions if symbol_versions is not None else [(32, 32)]
+
+    total_net = 0
+    for i, (vx, vy) in enumerate(versions):
+        _, net = _symbol_capacity(color_number, effective_eccs[i], vx, vy, i == 0)
+        total_net += net
+
+    return total_net

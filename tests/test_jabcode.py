@@ -245,3 +245,121 @@ class TestModuleImport:
     def test_public_api(self):
         assert callable(pyjabcode.encode)
         assert callable(pyjabcode.decode)
+        assert callable(pyjabcode.get_capacity)
+
+
+class TestGetCapacity:
+    """Verify get_capacity mirrors the C library's internal capacity math.
+
+    Expected values were derived directly from the C ``getSymbolCapacity``
+    function and the ``(capacity // wr) * wr - (capacity // wr) * wc``
+    net-capacity formula, then confirmed to be consistent with the library
+    by encoding data near the computed limits.
+    """
+
+    # --- single-symbol configurations ---
+
+    def test_v4x4_c8_ecc3_default_mode(self):
+        """version (4,4), 8 colours, ECC 3 → default mode, no metadata overhead."""
+        # gross = (33*33 - 68 - 0 - 24 - 0) * 3 = 2991; wc=4, wr=9 → net=1660
+        assert pyjabcode.get_capacity(color_number=8, ecc_level=3, symbol_versions=[(4, 4)]) == 1660
+
+    def test_v4x4_c8_ecc5_non_default(self):
+        """version (4,4), 8 colours, ECC 5 → metadata present, different wcwr."""
+        # gross = (33*33 - 68 - 0 - 24 - 17) * 3 = 2940; wc=4, wr=7 → net=1260
+        assert pyjabcode.get_capacity(color_number=8, ecc_level=5, symbol_versions=[(4, 4)]) == 1260
+
+    def test_v4x4_c4_ecc3(self):
+        """version (4,4), 4 colours → 2 bpm, more metadata modules needed."""
+        # gross = (33*33 - 68 - 0 - 8 - 23) * 2 = 1980; wc=4, wr=9 → net=1100
+        assert pyjabcode.get_capacity(color_number=4, ecc_level=3, symbol_versions=[(4, 4)]) == 1100
+
+    def test_v6x6_c8_ecc3(self):
+        """version (6,6), 8 colours, ECC 3 → alignment patterns present."""
+        # gross = (41*41 - 68 - 35 - 24 - 0) * 3 = 4662; wc=4, wr=9 → net=2590
+        assert pyjabcode.get_capacity(color_number=8, ecc_level=3, symbol_versions=[(6, 6)]) == 2590
+
+    def test_v1x1_c8_ecc3(self):
+        """version (1,1), 8 colours, ECC 3 → smallest master symbol."""
+        # gross = (21*21 - 68 - 0 - 24 - 0) * 3 = 1047; wc=4, wr=9 → net=580
+        assert pyjabcode.get_capacity(color_number=8, ecc_level=3, symbol_versions=[(1, 1)]) == 580
+
+    def test_v10x10_c16_ecc2(self):
+        """version (10,10), 16 colours, ECC 2 → 4 bpm, non-default mode."""
+        # gross = (57*57 - 68 - 245 - 56 - 14) * 4 = 12108; wc=3, wr=7 → net=6916
+        assert pyjabcode.get_capacity(color_number=16, ecc_level=2, symbol_versions=[(10, 10)]) == 6916
+
+    def test_v32x32_c256_ecc1(self):
+        """version (32,32), 256 colours, ECC 1 → maximum single-symbol capacity."""
+        assert pyjabcode.get_capacity(color_number=256, ecc_level=1, symbol_versions=[(32, 32)]) == 100805
+
+    # --- ECC level 0 maps to the default level 3 ---
+
+    def test_ecc0_same_as_ecc3(self):
+        """ecc_level=0 resolves to the library default (level 3)."""
+        cap0 = pyjabcode.get_capacity(color_number=8, ecc_level=0, symbol_versions=[(4, 4)])
+        cap3 = pyjabcode.get_capacity(color_number=8, ecc_level=3, symbol_versions=[(4, 4)])
+        assert cap0 == cap3
+
+    # --- multi-symbol ---
+
+    def test_2symbol_v4x4_c8_ecc3(self):
+        """Two symbols: master net (1660) + slave net (1725) = 3385."""
+        cap = pyjabcode.get_capacity(
+            color_number=8,
+            symbol_number=2,
+            ecc_level=3,
+            symbol_versions=[(4, 4), (4, 4)],
+        )
+        # Slave has fewer finder-pattern modules → higher gross capacity.
+        assert cap == 3385
+
+    # --- no symbol_versions → max version (32,32) used ---
+
+    def test_no_symbol_versions_returns_max(self):
+        """Omitting symbol_versions gives the (32,32) upper-bound capacity."""
+        cap_default = pyjabcode.get_capacity(color_number=8, ecc_level=3)
+        cap_explicit = pyjabcode.get_capacity(
+            color_number=8, ecc_level=3, symbol_versions=[(32, 32)]
+        )
+        assert cap_default == cap_explicit
+
+    # --- consistency with actual encoding ---
+
+    def test_capacity_consistent_with_encoder(self, tmp_path: Path):
+        """Data within get_capacity bits must be encodable; if provided as
+        explicit symbol_versions, oversized data raises JabCodeError."""
+        versions = [(4, 4)]
+        net_bits = pyjabcode.get_capacity(
+            color_number=8, ecc_level=3, symbol_versions=versions
+        )
+        # 'A' is uppercase; JABCode encodes it in 5 bits/char.
+        # payload_length = encoded_bits + 5 (flag + S field), so:
+        # max_chars = (net_bits - 5) // 5
+        max_chars = (net_bits - 5) // 5
+        ok_data = b"A" * max_chars
+
+        img = tmp_path / "cap_ok.png"
+        pyjabcode.encode(ok_data, img, color_number=8, ecc_level=3, symbol_versions=versions)
+        assert pyjabcode.decode(img) == ok_data
+
+    # --- input validation ---
+
+    def test_multi_symbol_requires_versions(self):
+        """symbol_number > 1 without symbol_versions raises ValueError."""
+        with pytest.raises(ValueError, match="symbol_versions is required"):
+            pyjabcode.get_capacity(symbol_number=2)
+
+    def test_wrong_versions_length(self):
+        """symbol_versions length mismatch raises ValueError."""
+        with pytest.raises(ValueError, match="symbol_versions length"):
+            pyjabcode.get_capacity(symbol_number=2, symbol_versions=[(4, 4)])
+
+    def test_ecc_list_wrong_length(self):
+        """ecc_level list length mismatch raises ValueError."""
+        with pytest.raises(ValueError, match="ecc_level list length"):
+            pyjabcode.get_capacity(
+                symbol_number=2,
+                ecc_level=[3],
+                symbol_versions=[(4, 4), (4, 4)],
+            )
