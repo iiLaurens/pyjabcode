@@ -20,6 +20,39 @@ JABCode is a high-capacity 2D colour barcode capable of encoding significantly m
 
 ---
 
+## Key Concepts
+
+JABCode has its own terminology that differs from common barcodes such as QR codes.  The following definitions are helpful before reading the API reference.
+
+**Module**  
+The smallest unit of a JABCode image — a single coloured square in the grid.  Every module is rendered as a block of pixels in the output PNG; the `module_size` parameter controls how many pixels wide and tall each block is.
+
+**Colour number**  
+The size of the colour palette used to encode data.  JABCode supports palettes of 4, 8, 16, 32, 64, 128, or 256 distinct colours.  Using more colours allows each module to carry more bits, which increases data density for the same physical code size.  The default palette of 8 colours (Cyan, Magenta, Yellow, Black, Blue, Red, Green, White) is well-suited to most use cases.
+
+**Symbol**  
+A self-contained rectangular grid of modules.  A complete JABCode can consist of one or more symbols printed adjacently.
+
+**Primary symbol (master)**  
+The single, mandatory symbol in every JABCode.  It contains four finder patterns — one at each corner — that allow a scanner to locate, orient, and decode the code even when it is tilted or partially obscured.
+
+**Secondary symbol (slave)**  
+An optional extension symbol docked directly to the primary or to another secondary symbol.  Secondary symbols carry no finder patterns of their own; they rely on the primary for orientation.  Up to 60 secondary symbols may be attached, dramatically increasing the total data capacity.
+
+**Version**  
+A number from 1 to 32 that describes the size of one symbol along a single axis.  Version 1 corresponds to 21 modules; each increment adds 4 modules, so Version 32 is 145 modules on that side (formula: `4(v-1) + 21`).  Because JABCode symbols can be non-square, a version pair `(x, y)` is used — one value for the horizontal axis and one for the vertical axis.
+
+**Symbol position**  
+An integer index (0–60) that specifies where a symbol sits within a multi-symbol layout.  Position 0 is always the primary symbol.  Positions 1 and above follow the spiral placement order defined in the JABCode specification (BSI TR-03137), arranging secondary symbols around the primary and each other.
+
+**ECC level (Error Correction Code level)**  
+A value from 1 to 10 that controls how much of the code's area is dedicated to error-correction data.  Higher levels allow the code to be recovered even when a larger portion is damaged or unreadable, at the cost of reduced net data capacity.  Level 3 (the default) provides approximately 6% redundancy; Level 8 or above is recommended for codes that may suffer physical wear.
+
+**Compatible decode mode**  
+A lenient decoding strategy that returns whatever data could be recovered when one or more symbols in a multi-symbol code fail to decode.  Use this mode for damaged or partially obscured codes where a best-effort result is preferable to an outright failure.
+
+---
+
 ## Installation
 
 ```bash
@@ -71,16 +104,16 @@ pyjabcode.encode(b"critical data", "safe.png", color_number=4, ecc_level=8)
 # Fix the master symbol to 300 × 300 pixels
 pyjabcode.encode("Fixed size", "fixed.png", master_symbol_width=300, master_symbol_height=300)
 
-# Two-symbol code with explicit side-versions and positions
+# Two-symbol code with explicit versions and positions
 pyjabcode.encode(
     "Long payload that needs two symbols",
     "multi.png",
     symbol_number=2,
-    symbol_versions=[(4, 4), (4, 4)],
-    symbol_positions=[0, 3],
+    symbol_versions=[(4, 4), (4, 4)],  # each symbol: Version 4 × Version 4 (37 × 37 modules)
+    symbol_positions=[0, 3],            # position 0 = primary; position 3 = first secondary
 )
 
-# Per-symbol ECC levels (master gets level 5, slave gets level 3)
+# Per-symbol ECC levels (primary gets level 5, secondary gets level 3)
 pyjabcode.encode(
     "Mixed ECC",
     "mixed_ecc.png",
@@ -129,14 +162,14 @@ Encodes *data* and writes a PNG to *filename*.  Returns the `Path` that was writ
 
 | Parameter | Default | Description |
 |---|---|---|
-| `color_number` | `8` | Number of colours: 4, 8, 16, 32, 64, 128, or 256. |
-| `symbol_number` | `1` | Total symbols (1–61). |
-| `module_size` | `None` (→ 12 px) | Module size in pixels (must be ≥ 1). Overridden by `master_symbol_width/height`. |
-| `master_symbol_width` | `0` (auto) | Primary symbol width in pixels. |
-| `master_symbol_height` | `0` (auto) | Primary symbol height in pixels. |
-| `ecc_level` | `3` | ECC level 1–10 (0 = library default), or a list with one value per symbol. |
-| `symbol_versions` | `None` | Per-symbol side-version as `[(x, y), …]`, values 1–32. **Required for multi-symbol codes.** Must have `symbol_number` entries. |
-| `symbol_positions` | `None` | Per-symbol position index (0–60). Must have `symbol_number` entries. |
+| `color_number` | `8` | Size of the colour palette: 4, 8, 16, 32, 64, 128, or 256. More colours increase data density per module. |
+| `symbol_number` | `1` | Total number of symbols (1–61): one primary plus up to 60 secondary symbols. |
+| `module_size` | `None` (→ 12 px) | Pixel width and height of each module (must be ≥ 1). Overridden by `master_symbol_width/height`. |
+| `master_symbol_width` | `0` (auto) | Desired width of the primary symbol in pixels; the library scales modules to fit. |
+| `master_symbol_height` | `0` (auto) | Desired height of the primary symbol in pixels; the library scales modules to fit. |
+| `ecc_level` | `3` | Error-correction level 1–10 (0 = library default), or a list with one value per symbol. Higher levels tolerate more damage but reduce net data capacity. |
+| `symbol_versions` | `None` | Per-symbol size as `[(x, y), …]` version pairs (1–32 each), primary first. Version *v* gives `4(v-1) + 21` modules on that axis (e.g., Version 1 = 21, Version 4 = 33, Version 32 = 145 modules). **Required for multi-symbol codes.** |
+| `symbol_positions` | `None` | Per-symbol position index (0–60), primary first, following the spiral layout in BSI TR-03137. Position 0 is always the primary symbol. |
 
 Raises `ValueError` if `color_number` is not one of 4, 8, 16, 32, 64, 128, or 256,
 if `symbol_number` is outside 1–61,
@@ -160,7 +193,7 @@ Decodes a JABCode PNG and returns the raw payload as `bytes`.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `compatible` | `False` | Use compatible-decode mode to tolerate partial failures. |
+| `compatible` | `False` | Enable compatible-decode mode: return partial data if one or more secondary symbols cannot be decoded, instead of raising an error. |
 
 Raises `FileNotFoundError` if *filename* does not exist.  
 Raises `JabCodeError` if decoding fails.
