@@ -3,6 +3,7 @@
 *.a
 *.dll
 *.so
+*.dylib
 *.exe
 
 # Build output directories (keep the directories, ignore contents)
@@ -11,3 +12,20 @@ src/jabcodeReader/bin/jabcodeReader
 src/jabcodeReader/bin/jabcodeReader.exe
 src/jabcodeWriter/bin/jabcodeWriter
 src/jabcodeWriter/bin/jabcodeWriter.exe
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+wheelhouse/
+_skbuild/
+.eggs/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
